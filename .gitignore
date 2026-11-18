@@ -1,0 +1,56 @@
+# ============================================
+# Terraform
+# ============================================
+# Local provider cache and state (state lives in the remote backend, never in git)
+.terraform/
+*.tfstate
+*.tfstate.*
+
+# Plan files and crash logs
+*.tfplan
+tfplan
+plan_output.txt
+crash.log
+crash.*.log
+
+# Override files (local-only experiments)
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# CLI configuration (may contain credentials)
+.terraformrc
+terraform.rc
+
+# Variable / backend files that may contain secrets or local-only values
+*.auto.tfvars
+*.auto.tfvars.json
+*secret*.tfvars
+*.local.tfvars
+*.local.tfbackend
+
+# NOTE: .terraform.lock.hcl is intentionally NOT ignored.
+# Committing the lock file pins exact provider versions/checksums for every run.
+
+# ============================================
+# Cloudflare Workers / Node (apps/)
+# ============================================
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+.dev.vars.*
+.env
+.env.*
+!.env.example
+
+# ============================================
+# IDE & OS
+# ============================================
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+Thumbs.db
