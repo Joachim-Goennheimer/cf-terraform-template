@@ -74,3 +74,169 @@ zero_trust_device_custom_profiles = [
     tunnel_protocol       = "masque"
   },
 ]
+
+# ---------------------------------------------------------------------------
+# Gateway policies
+# ---------------------------------------------------------------------------
+# Naming follows Cloudflare's recommended convention: <Who>-<Layer>-<Selector>-<Action>.
+# Policies are based on Cloudflare's recommended policies:
+#   https://developers.cloudflare.com/learning-paths/secure-internet-traffic/
+#
+# Category IDs below were verified against the Cloudflare API:
+#   GET https://api.cloudflare.com/client/v4/accounts/{account_id}/gateway/categories
+# Category IDs can change over time; re-check them against this endpoint when updating policies.
+#
+# Precedence ranges (a convention that keeps policy types apart and leaves room for inserts):
+#   DNS 1000-1999 | Network 2000-2999 | HTTP 3000-3999
+
+gateway_dns_policies = [
+  {
+    # Security categories (all subcategories of "Security threats", ID 21):
+    #    68 Anonymizer                      178 Brand Embedding (beta)
+    #    80 Command and Control & Botnet    187 Compromised Domain
+    #    83 Cryptomining                    176 DGA Domains
+    #   175 DNS Tunneling                   117 Malware
+    #   131 Phishing                        188 Potentially unwanted software
+    #   134 Private IP Address (*)          191 Scam
+    #   151 Spam                            153 Spyware
+    # (*) 134 blocks public domains that resolve to private IPs (DNS rebinding protection).
+    #     Remove it if internal apps are published in public DNS with private IPs.
+    name           = "All-DNS-SecurityCategories-Blocklist"
+    description    = "Block security threats (malware, phishing, C2/botnet, ...) based on Cloudflare threat intelligence"
+    enabled        = true
+    action         = "block"
+    precedence     = 1000
+    traffic        = "any(dns.security_category[*] in {68 178 80 187 83 176 175 117 131 188 134 191 151 153})"
+    identity       = ""
+    device_posture = ""
+    block_settings = { page_enabled = true, reason = "This domain is blocked because it poses a security risk." }
+  },
+  {
+    # Content categories (top-level category + all of its subcategories):
+    #    17 Questionable Content:  85 Deceptive Ads, 87 Drugs, 102 Hacking, 157 Militancy, Hate & Extremism,
+    #                              135 Profanity, 138 Questionable Activities, 180 School Cheating,
+    #                              162 Unreliable Information
+    #    32 Security Risks:        169 New Domains, 177 Newly Seen Domains, 128 Parked & For Sale Domains
+    #    15 Miscellaneous:         115 Login Screens, 119 Miscellaneous, 124 No Content,
+    #                              141 URL Alias/Redirect, 161 Unreachable
+    # Tip: roll out with action = "allow" first, check the logs for false positives, then switch to "block".
+    name           = "All-DNS-ContentCategories-Blocklist"
+    description    = "Block questionable content, security risks (e.g. new domains) and miscellaneous categories"
+    enabled        = true
+    action         = "block"
+    precedence     = 1100
+    traffic        = "any(dns.content_category[*] in {17 85 87 102 157 135 138 180 162 32 169 177 128 15 115 119 124 141 161})"
+    identity       = ""
+    device_posture = ""
+    block_settings = { page_enabled = true, reason = "This domain is blocked by the company content policy." }
+  },
+]
+
+gateway_network_policies = [
+  {
+    name           = "Contractors-NET-PrivateNetwork-Block"
+    description    = "Contractors may not reach internal (RFC 1918) networks"
+    enabled        = true
+    action         = "block"
+    precedence     = 2000
+    traffic        = "net.dst.ip in {10.0.0.0/8 172.16.0.0/12 192.168.0.0/16}"
+    identity       = "any(identity.groups.name[*] in {\"contractors\"})"
+    device_posture = ""
+  },
+]
+
+# Application TYPE IDs (app.type.ids) are a different list from the categories above:
+#    16 Do Not Inspect    25 Artificial Intelligence
+# Source: Cloudflare docs. Verify via
+#   GET https://api.cloudflare.com/client/v4/accounts/{account_id}/gateway/app_types
+gateway_http_policies = [
+  {
+    # Must come first: apps with certificate pinning break under TLS inspection.
+    name           = "All-HTTP-Application-InspectBypass"
+    description    = "Do not inspect applications that use certificate pinning"
+    enabled        = true
+    action         = "off"
+    precedence     = 3000
+    traffic        = "any(app.type.ids[*] in {16})" # 16 = Do Not Inspect
+    identity       = ""
+    device_posture = ""
+    block_settings = null
+  },
+  {
+    # Same security categories as All-DNS-SecurityCategories-Blocklist (see the ID list there).
+    name           = "All-HTTP-SecurityRisks-Blocklist"
+    description    = "Block security threats at the HTTP layer (also catches requests that bypass DNS)"
+    enabled        = true
+    action         = "block"
+    precedence     = 3100
+    traffic        = "any(http.request.uri.security_category[*] in {68 178 80 187 83 176 175 117 131 188 134 191 151 153})"
+    identity       = ""
+    device_posture = ""
+    block_settings = { page_enabled = true, reason = "This website is blocked because it poses a security risk." }
+  },
+  {
+    # Identity-based exception: evaluated before the general AI block below.
+    name           = "AIPilot-HTTP-Application-Allow"
+    description    = "Allow public AI tools for members of the AI pilot group"
+    enabled        = true
+    action         = "allow"
+    precedence     = 3200
+    traffic        = "any(app.type.ids[*] in {25})" # 25 = Artificial Intelligence
+    identity       = "any(identity.groups.name[*] in {\"ai-pilot\"})"
+    device_posture = ""
+    block_settings = null
+  },
+  {
+    name           = "All-HTTP-Application-Blocklist"
+    description    = "Block public AI tools (shadow IT) for everyone else"
+    enabled        = true
+    action         = "block"
+    precedence     = 3300
+    traffic        = "any(app.type.ids[*] in {25})" # 25 = Artificial Intelligence
+    identity       = ""
+    device_posture = ""
+    block_settings = { page_enabled = true, reason = "Public AI tools are not approved. Please use the company AI service." }
+  },
+]
+
+# ---------------------------------------------------------------------------
+# Gateway settings
+# ---------------------------------------------------------------------------
+
+# null = TLS inspection uses the Cloudflare Root CA. Set this to use a Gateway-managed
+# certificate instead. Either certificate must be deployed to devices as a trusted root.
+gateway_managed_certificate = null
+# gateway_managed_certificate = {
+#   validity_period_days = 1825 # 5 years; only applied on creation
+#   activate             = true
+# }
+
+gateway_settings = {
+  tls_decrypt_enabled        = true  # Required to apply HTTP policies to HTTPS traffic
+  protocol_detection_enabled = false # Detect HTTP/HTTPS on non-standard ports
+  activity_log_enabled       = true  # Write Gateway activity logs (what is logged: see gateway_logging)
+  antivirus = {
+    enabled_download_phase = true # Scan downloaded files
+    enabled_upload_phase   = true # Scan uploaded files
+    fail_closed            = true # Block files that cannot be scanned (safer default)
+  }
+  block_page = {
+    enabled          = true
+    mode             = "customized_block_page"
+    name             = "Example Org Secure Web Gateway"
+    header_text      = "Access blocked"
+    footer_text      = "Contact the IT service desk if you think this is a mistake."
+    logo_path        = "https://www.example.com/logo.png"
+    background_color = "#1e3a5f"
+    mailto_address   = "it-servicedesk@example.com"
+    mailto_subject   = "Gateway block page inquiry"
+    suppress_footer  = false
+  }
+}
+
+gateway_logging = {
+  redact_pii = true                                   # Remove user email/IP/device details from logs (privacy)
+  dns        = { log_all = false, log_blocks = true } # Log only blocked DNS queries
+  http       = { log_all = false, log_blocks = true } # Log only blocked HTTP requests
+  l4         = { log_all = false, log_blocks = true } # Log only blocked network sessions
+}
