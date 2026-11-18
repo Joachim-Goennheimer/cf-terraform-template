@@ -1,0 +1,3 @@
+# State location for the account scope.
+# Combined with terraform/backend-common.s3.tfbackend at `terraform init` time.
+key = "account/terraform.tfstate"

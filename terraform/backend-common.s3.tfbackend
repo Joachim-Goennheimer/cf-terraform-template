@@ -1,0 +1,31 @@
+# Shared remote-state settings for ALL Terraform scopes (account, zones, apps).
+#
+# State is stored in a Cloudflare R2 bucket via Terraform's S3-compatible `s3` backend.
+# At `terraform init`, this file is combined with the scope's own `config/<name>.s3.tfbackend`
+# (which only sets `key`) into ONE backend configuration. Later -backend-config files override
+# earlier ones for any setting defined in both.
+#
+#   terraform init \
+#     -backend-config=<path-to>/terraform/backend-common.s3.tfbackend \
+#     -backend-config=../config/<name>.s3.tfbackend
+#
+# Credentials are deliberately NOT set here (Terraform would persist them in plain text in
+# .terraform/ and in plan files). The `s3` backend reads them from these environment variables,
+# whose names are fixed by the backend. Set them to your R2 API token's S3 credentials:
+#   AWS_ACCESS_KEY_ID     = <R2 Access Key ID>
+#   AWS_SECRET_ACCESS_KEY = <R2 Secret Access Key>
+
+bucket    = "example-org-terraform-state"                                   # R2 bucket holding all state files (replace)
+endpoints = { s3 = "https://<CLOUDFLARE_ACCOUNT_ID>.r2.cloudflarestorage.com" } # R2's S3 API endpoint for your account (replace ID)
+
+use_lockfile = true # Lock state via a <key>.tflock object; R2 evaluates conditional writes atomically (Terraform >= 1.10)
+
+# The settings below turn off AWS-specific behaviour that does not exist on R2.
+# None of them weakens authentication: R2 still checks the access key on every request.
+region                      = "auto" # R2 has no AWS regions; "auto" is R2's region value
+use_path_style              = true   # Address the bucket as <endpoint>/<bucket> instead of <bucket>.<endpoint>
+skip_credentials_validation = true   # Skip the upfront AWS STS GetCallerIdentity call (STS doesn't exist on R2); invalid keys still fail with 403
+skip_metadata_api_check     = true   # Don't look for credentials on the AWS EC2 metadata endpoint (169.254.169.254)
+skip_region_validation      = true   # Don't reject "auto" for not being an AWS region name
+skip_requesting_account_id  = true   # Don't call AWS STS/IAM to look up an AWS account ID
+skip_s3_checksum            = true   # Don't send the AWS SDK's newer x-amz-checksum-* headers, which R2 doesn't support
