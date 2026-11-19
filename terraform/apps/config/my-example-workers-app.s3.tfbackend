@@ -1,0 +1,3 @@
+# State location for the app my-example-workers-app.
+# Combined with terraform/backend-common.s3.tfbackend at `terraform init` time.
+key = "apps/my-example-workers-app/terraform.tfstate"

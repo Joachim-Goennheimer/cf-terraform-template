@@ -35,10 +35,9 @@ are placeholders. Replace them with your own values.
 │   ├── zones/                              # Shared logic for ALL zones
 │   │   ├── config/                         #   <zone>.tfvars + <zone>.s3.tfbackend per zone
 │   │   └── terraform-logic/                #   zone-settings.tf, dns.tf, waf.tf, access.tf, ...
-│   └── apps/
-│       └── my-example-workers-app/         # Per-app resources: D1, KV, R2, ...
-│           ├── config/
-│           └── terraform-logic/
+│   └── apps/                               # Shared logic for ALL apps
+│       ├── config/                         #   <app>.tfvars + <app>.s3.tfbackend per app
+│       └── terraform-logic/                #   d1.tf, r2.tf, kv.tf, ...
 │
 └── apps/
     └── my-example-workers-app/             # Application code + wrangler.jsonc

@@ -1,0 +1,77 @@
+// Wrangler configuration for my-example-workers-app.
+// Placeholder IDs: after `terraform apply` for this app (terraform/apps/, with
+// config/my-example-workers-app.tfvars), copy the values from `terraform output -json` into the
+// bindings below.
+//
+// Secrets (API keys, passwords) never go into this file:
+//   npx wrangler secret put MY_SECRET --env production
+{
+  "name": "my-example-workers-app",
+  "main": "src/index.ts", // Your application code (not part of this template)
+  "compatibility_date": "2026-11-19", // Set to the current date when you start; update periodically
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Logs and traces in the Cloudflare dashboard. Lower the sampling rate for high-traffic apps.
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+
+  // Only reachable via the custom domains below, so zone-level WAF rules always apply.
+  "workers_dev": false,
+  "preview_urls": false,
+
+  // Bindings are NOT inherited by environments, so they are defined per environment.
+  // Worker names become "my-example-workers-app-staging" and "my-example-workers-app-production".
+  "env": {
+    "staging": {
+      // Custom domain: Cloudflare creates the DNS record and certificate automatically.
+      "routes": [{ "pattern": "app-staging.example-zone-a.com", "custom_domain": true }],
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "my-example-workers-app-staging-db",
+          "database_id": "<D1_ID_STAGING_DB>",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "r2_buckets": [
+        {
+          "binding": "ASSETS_BUCKET",
+          "bucket_name": "my-example-workers-app-staging-assets",
+          "jurisdiction": "eu" // Must match the bucket's jurisdiction
+        }
+      ],
+      "kv_namespaces": [
+        {
+          "binding": "CACHE",
+          "id": "<KV_ID_STAGING_CACHE>"
+        }
+      ]
+    },
+    "production": {
+      "routes": [{ "pattern": "app.example-zone-a.com", "custom_domain": true }],
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "my-example-workers-app-production-db",
+          "database_id": "<D1_ID_PRODUCTION_DB>",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "r2_buckets": [
+        {
+          "binding": "ASSETS_BUCKET",
+          "bucket_name": "my-example-workers-app-production-assets",
+          "jurisdiction": "eu"
+        }
+      ],
+      "kv_namespaces": [
+        {
+          "binding": "CACHE",
+          "id": "<KV_ID_PRODUCTION_CACHE>"
+        }
+      ]
+    }
+  }
+}
