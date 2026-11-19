@@ -1,5 +1,16 @@
 # Cloudflare Terraform Template
 
+> **Disclaimer:** This is a personal project. The author works at Cloudflare, but this repository
+> is **not an official Cloudflare product, guide or recommendation**, and it is not supported,
+> reviewed or endorsed by Cloudflare.
+>
+> The template is provided **"as is", without warranty of any kind**, express or implied,
+> including fitness for a particular purpose, **by Cloudflare or the author**. It may contain
+> errors, outdated information, or settings that are unsuitable for your environment. Review,
+> understand and test everything carefully before you use it, especially in production. You are
+> solely responsible for its use. Neither Cloudflare nor the author is liable for any damages
+> arising from it.
+
 A blueprint for managing Cloudflare at enterprise scale with Terraform: **one Cloudflare account
 with 1–n zones**, account-wide Zero Trust, and Workers applications. All changes go through pull
 requests and every scope has its own isolated state.
@@ -324,3 +335,8 @@ A model that scales when that becomes necessary:
   resources that exist independently, such as DNS records or Access applications. Zone settings
   and the WAF rulesets (one entry point ruleset per phase and zone) must stay in exactly one
   state, otherwise the states overwrite each other.
+
+## License
+
+[MIT No Attribution (MIT-0)](LICENSE): use, copy and adapt this template freely, without
+attribution. See also the disclaimer at the top of this README.
