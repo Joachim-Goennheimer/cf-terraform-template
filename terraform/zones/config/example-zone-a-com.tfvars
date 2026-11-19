@@ -16,7 +16,7 @@ zone_settings = {
   "automatic_https_rewrites" = "on" # Rewrite http:// links in HTML to https:// where possible
   "http3"                    = "on"
   "0rtt"                     = "off" # 0-RTT can allow request replays; enable only if the origin is replay-safe
-  "early_hints"              = "on"
+  "early_hints"              = "off" # 103 Early Hints (asset preloading). Off: the zone has Access-protected apps, and cached hints can reveal their asset URLs to unauthenticated visitors
 }
 
 # ---------------------------------------------------------------------------

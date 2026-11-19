@@ -1,0 +1,3 @@
+# State location for zone example-zone-status.net.
+# Combined with terraform/backend-common.s3.tfbackend at `terraform init` time.
+key = "zones/example-zone-status-net/terraform.tfstate"
