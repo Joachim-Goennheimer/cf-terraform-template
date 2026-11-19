@@ -75,4 +75,93 @@ dns_records = {
     proxied = false
     comment = "DMARC: reject unauthenticated mail, send aggregate reports"
   }
+  "cms" = {
+    name    = "cms"
+    type    = "A"
+    content = "192.0.2.20"
+    ttl     = 1
+    proxied = true # Must be proxied so Cloudflare Access can protect it
+    comment = "Content management system (protected by Access, see below)"
+  }
+}
+
+# ---------------------------------------------------------------------------
+# WAF custom rules (evaluated top to bottom)
+# ---------------------------------------------------------------------------
+# Tip: test new rules with action = "log" before "block" or "managed_challenge".
+waf_custom_rules = [
+  {
+    ref         = "block_secret_file_probing"
+    description = "Block probing for secrets and VCS metadata (.env, .git)"
+    expression  = "(http.request.uri.path contains \"/.env\") or (http.request.uri.path contains \"/.git/\")"
+    action      = "block"
+    enabled     = true
+  },
+  {
+    ref         = "challenge_admin_outside_allowed_countries"
+    description = "Challenge requests to /admin from outside the main markets"
+    expression  = "starts_with(http.request.uri.path, \"/admin\") and not (ip.src.country in {\"US\" \"DE\" \"GB\" \"FR\" \"JP\"})"
+    action      = "managed_challenge"
+    enabled     = true
+  },
+]
+
+# ---------------------------------------------------------------------------
+# WAF managed rulesets (require the Pro plan or higher)
+# ---------------------------------------------------------------------------
+# Ruleset IDs are public and identical for every customer:
+#   https://developers.cloudflare.com/terraform/additional-configurations/waf-managed-rulesets/
+waf_managed_rulesets = [
+  {
+    ref         = "cloudflare_managed_ruleset"
+    description = "Cloudflare Managed Ruleset"
+    ruleset_id  = "efb7b8c949ac4650a09736fc376e9aee"
+    expression  = "true" # All requests in this zone
+    enabled     = true
+  },
+  {
+    ref         = "cloudflare_owasp_core_ruleset"
+    description = "Cloudflare OWASP Core Ruleset"
+    ruleset_id  = "4814384a9e5d4991b9815dcfc25d2f1f"
+    expression  = "true"
+    enabled     = true
+  },
+]
+
+# ---------------------------------------------------------------------------
+# Access (Zero Trust)
+# ---------------------------------------------------------------------------
+access_policies = {
+  "employees" = {
+    decision = "allow"
+    include = {
+      emails        = []
+      email_domains = ["example-zone-a.com"] # Everyone with a company email address...
+      ip_ranges     = []
+    }
+    exclude = {
+      emails        = ["former-employee@example-zone-a.com"] # ...except explicitly excluded users
+      email_domains = []
+      ip_ranges     = []
+    }
+  }
+}
+
+access_service_tokens = {
+  "uptime-monitoring" = {
+    duration = "8760h" # 1 year; rotate before expiry
+  }
+}
+
+access_applications = {
+  "Corporate CMS" = {
+    type                      = "self_hosted"
+    domain                    = "cms.example-zone-a.com"
+    session_duration          = "8h"
+    auto_redirect_to_identity = false
+    app_launcher_visible      = true
+    allowed_idps              = []
+    policies                  = ["employees"]
+    service_tokens            = ["uptime-monitoring"] # External uptime monitor checks the CMS without a login
+  }
 }
