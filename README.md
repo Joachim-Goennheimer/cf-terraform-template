@@ -17,6 +17,26 @@ are placeholders. Replace them with your own values.
 | **GitOps** | PR → `terraform plan` posted as a PR comment → review → merge → `terraform apply`. The dashboard is read-only for anything Terraform manages. |
 | **Least privilege** | Each scope runs with its own narrowly scoped Cloudflare API token. |
 
+## Operating model
+
+The setup assumes **trunk-based development** with **strict GitOps**:
+
+- **`main` is the only source of truth.** Every change is a short-lived branch and a pull request
+  against `main`. There are no long-lived environment branches.
+- **Pull request = plan, merge = apply.** The plan is posted to the PR for review. Merging applies
+  it. Terraform workflows have no manual trigger, so the only way to change infrastructure is a
+  reviewed merge.
+- **No edit permissions in the Cloudflare dashboard.** People get read-only roles, and only the
+  CI tokens can change configuration. That is what makes the setup reliable:
+  - The state never drifts, so a plan reviewed in a PR is still accurate when it is applied after
+    the merge (apply re-plans instead of applying a saved plan file).
+  - Every change has an author, a review and a history in Git, and `git revert` is the rollback.
+- **Review every plan for `destroy`.** Deletions are intended only when they appear in the PR plan.
+  Data stores (D1, R2) are additionally protected with `prevent_destroy`.
+
+Break-glass access (e.g. disabling a WAF rule during an incident) should be a separate,
+audited admin role. Afterwards, the same change is made in Git so the code matches reality again.
+
 ## Repository structure
 
 ```

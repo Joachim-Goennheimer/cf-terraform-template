@@ -1,0 +1,76 @@
+# Deploys the CODE of my-example-workers-app with Wrangler.
+# The app's resources (D1, R2, KV) are created by Terraform (terraform-app-my-example-workers-app.yml).
+#
+#   push to main      -> deploy to staging
+#   manual (dispatch) -> deploy to staging or production
+#
+# Skeleton: this template contains no application code. Until apps/my-example-workers-app/src/
+# exists, the workflow only prints a notice.
+
+name: "Deploy: my-example-workers-app"
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/my-example-workers-app/**"
+      - ".github/workflows/deploy-my-example-workers-app.yml"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        type: choice
+        options: [staging, production]
+        default: staging
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: deploy (${{ inputs.environment || 'staging' }})
+    runs-on: ubuntu-24.04
+    # GitHub Environment per target: add required reviewers for production in the repo settings.
+    environment: deploy-my-example-workers-app-${{ inputs.environment || 'staging' }}
+    concurrency:
+      group: deploy-my-example-workers-app-${{ inputs.environment || 'staging' }}
+      cancel-in-progress: false
+    env:
+      TARGET_ENV: ${{ inputs.environment || 'staging' }} # Wrangler environment in wrangler.jsonc
+      APP_DIR: apps/my-example-workers-app
+      WRANGLER_SEND_METRICS: "false"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check for application code
+        id: check
+        run: |
+          echo "has_code=$([ -d "$APP_DIR/src" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "has_migrations=$([ -d "$APP_DIR/migrations" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - name: No code yet
+        if: steps.check.outputs.has_code != 'true'
+        run: echo "::notice::No application code in $APP_DIR/src yet - nothing to deploy."
+
+      # Database schema changes first, so the new code never runs against an old schema.
+      - name: Apply D1 migrations
+        if: steps.check.outputs.has_code == 'true' && steps.check.outputs.has_migrations == 'true'
+        uses: cloudflare/wrangler-action@953926a2e2182532811c01a25e53647d93bf07c0 # v4.1.3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN_DEPLOY_MY_EXAMPLE_WORKERS_APP }}
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: "4.160.1"
+          workingDirectory: ${{ env.APP_DIR }}
+          command: d1 migrations apply DB --remote --env ${{ env.TARGET_ENV }}
+
+      - name: Deploy Worker
+        if: steps.check.outputs.has_code == 'true'
+        uses: cloudflare/wrangler-action@953926a2e2182532811c01a25e53647d93bf07c0 # v4.1.3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN_DEPLOY_MY_EXAMPLE_WORKERS_APP }}
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: "4.160.1"
+          workingDirectory: ${{ env.APP_DIR }}
+          command: deploy --env ${{ env.TARGET_ENV }}

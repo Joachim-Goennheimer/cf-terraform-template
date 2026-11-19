@@ -1,0 +1,183 @@
+# Reusable Terraform pipeline, called by one small caller workflow per scope
+# (account, each zone, each app). All plan/apply logic lives here, once.
+#
+#   plan  (pull requests): fmt check, init, validate, plan -> plan posted as PR comment
+#   apply (push to main):  init, apply. Runs in a GitHub Environment (terraform-<scope>), so
+#                          approvals can be enforced via the environment's protection rules.
+#
+# Actions are pinned to full commit SHAs (supply-chain safety); the comment shows the version.
+
+name: Terraform (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      scope:
+        description: "Unique scope name, e.g. zone-example-zone-a-com. Used for comments, concurrency and the environment."
+        type: string
+        required: true
+      working_directory:
+        description: "Path to the terraform-logic directory, e.g. terraform/zones/terraform-logic"
+        type: string
+        required: true
+      var_file:
+        description: "tfvars file, relative to working_directory"
+        type: string
+        required: true
+      backend_file:
+        description: "Scope-specific .tfbackend file, relative to working_directory"
+        type: string
+        required: true
+      action:
+        description: "plan or apply"
+        type: string
+        required: true
+    secrets:
+      cloudflare_api_token:
+        description: "Cloudflare API token, scoped to this scope only"
+        required: true
+      aws_access_key_id:
+        description: "R2 Access Key ID for the state bucket (AWS name required by the s3 backend)"
+        required: true
+      aws_secret_access_key:
+        description: "R2 Secret Access Key for the state bucket"
+        required: true
+
+env:
+  TF_VERSION: "1.15.6"
+  TF_IN_AUTOMATION: "true"
+  BACKEND_COMMON: ${{ github.workspace }}/terraform/backend-common.s3.tfbackend
+  CLOUDFLARE_API_TOKEN: ${{ secrets.cloudflare_api_token }}
+  AWS_ACCESS_KEY_ID: ${{ secrets.aws_access_key_id }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.aws_secret_access_key }}
+
+jobs:
+  plan:
+    if: inputs.action == 'plan'
+    name: plan (${{ inputs.scope }})
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: write # Post the plan as PR comment
+    # One run per scope at a time; queued runs wait instead of being cancelled.
+    concurrency:
+      group: terraform-${{ inputs.scope }}
+      cancel-in-progress: false
+    env:
+      VAR_FILE: ${{ inputs.var_file }}
+      BACKEND_FILE: ${{ inputs.backend_file }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working_directory }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Format check
+        working-directory: terraform
+        run: terraform fmt -check -recursive -diff
+
+      - name: Init
+        run: >-
+          terraform init -input=false -lockfile=readonly
+          -backend-config="$BACKEND_COMMON"
+          -backend-config="$BACKEND_FILE"
+
+      - name: Validate
+        run: terraform validate -no-color
+
+      - name: Plan
+        id: plan
+        continue-on-error: true # Report failures in the PR comment, fail the job afterwards
+        run: |
+          set -o pipefail
+          terraform plan -input=false -no-color -var-file="$VAR_FILE" 2>&1 | tee plan.txt
+
+      - name: Comment plan on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          # Passed via env (not ${{ }} inside the script) to prevent script injection.
+          SCOPE: ${{ inputs.scope }}
+          PLAN_OUTCOME: ${{ steps.plan.outcome }}
+          PLAN_FILE: ${{ inputs.working_directory }}/plan.txt
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = `<!-- terraform-plan:${process.env.SCOPE} -->`;
+            const maxLength = 60000; // GitHub comments are limited to 65,536 characters
+            let plan = fs.readFileSync(process.env.PLAN_FILE, 'utf8');
+            if (plan.length > maxLength) {
+              plan = plan.substring(plan.length - maxLength) + '\n\n(truncated, see the workflow logs for the full plan)';
+            }
+            const summary = (plan.match(/^(Plan:.*|No changes\..*)$/m) || ['see details'])[0];
+            const icon = process.env.PLAN_OUTCOME === 'success' ? '✅' : '❌';
+            const body = [
+              marker,
+              `### ${icon} Terraform plan: \`${process.env.SCOPE}\``,
+              `**${summary}**`,
+              '',
+              '<details><summary>Show plan</summary>',
+              '',
+              '```',
+              plan,
+              '```',
+              '</details>',
+              '',
+              `_Triggered by @${context.actor} · commit ${context.sha.substring(0, 7)}_`,
+            ].join('\n');
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number });
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
+
+      - name: Fail if plan failed
+        if: steps.plan.outcome != 'success'
+        run: exit 1
+
+  apply:
+    # Defensive guard: apply only ever runs for the main branch.
+    if: inputs.action == 'apply' && github.ref == 'refs/heads/main'
+    name: apply (${{ inputs.scope }})
+    runs-on: ubuntu-24.04
+    environment: terraform-${{ inputs.scope }} # Add required reviewers in the repo settings
+    permissions:
+      contents: read
+    concurrency:
+      group: terraform-${{ inputs.scope }}
+      cancel-in-progress: false
+    env:
+      VAR_FILE: ${{ inputs.var_file }}
+      BACKEND_FILE: ${{ inputs.backend_file }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working_directory }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Init
+        run: >-
+          terraform init -input=false -lockfile=readonly
+          -backend-config="$BACKEND_COMMON"
+          -backend-config="$BACKEND_FILE"
+
+      - name: Apply
+        run: terraform apply -input=false -no-color -auto-approve -var-file="$VAR_FILE"
