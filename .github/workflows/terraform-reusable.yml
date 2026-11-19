@@ -2,8 +2,7 @@
 # (account, each zone, each app). All plan/apply logic lives here, once.
 #
 #   plan  (pull requests): fmt check, init, validate, plan -> plan posted as PR comment
-#   apply (push to main):  init, apply. Runs in a GitHub Environment (terraform-<scope>), so
-#                          approvals can be enforced via the environment's protection rules.
+#   apply (push to main):  init, apply. The reviewed and merged PR is the approval.
 #
 # Actions are pinned to full commit SHAs (supply-chain safety); the comment shows the version.
 
@@ -13,7 +12,7 @@ on:
   workflow_call:
     inputs:
       scope:
-        description: "Unique scope name, e.g. zone-example-zone-a-com. Used for comments, concurrency and the environment."
+        description: "Unique scope name, e.g. zone-example-zone-a-com. Used for PR comments and concurrency."
         type: string
         required: true
       working_directory:
@@ -151,7 +150,6 @@ jobs:
     if: inputs.action == 'apply' && github.ref == 'refs/heads/main'
     name: apply (${{ inputs.scope }})
     runs-on: ubuntu-24.04
-    environment: terraform-${{ inputs.scope }} # Add required reviewers in the repo settings
     permissions:
       contents: read
     concurrency:

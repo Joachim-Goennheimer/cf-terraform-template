@@ -30,8 +30,6 @@ jobs:
   deploy:
     name: deploy (${{ inputs.environment || 'staging' }})
     runs-on: ubuntu-24.04
-    # GitHub Environment per target: add required reviewers for production in the repo settings.
-    environment: deploy-my-example-workers-app-${{ inputs.environment || 'staging' }}
     concurrency:
       group: deploy-my-example-workers-app-${{ inputs.environment || 'staging' }}
       cancel-in-progress: false
